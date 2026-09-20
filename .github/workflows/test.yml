@@ -1,0 +1,37 @@
+name: test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: lua ${{ matrix.lua }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # Built from source rather than installed from apt: 5.5 is what Yazi
+        # 26.x embeds and is the version that actually matters, and pinning
+        # both keeps the run independent of what the runner image ships.
+        lua: ["5.5.1", "5.4.8"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build Lua ${{ matrix.lua }}
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libreadline-dev
+          curl -fsSL "https://www.lua.org/ftp/lua-${{ matrix.lua }}.tar.gz" | tar xz
+          make -C "lua-${{ matrix.lua }}" -j"$(nproc)"
+
+      - name: Run tests
+        run: |
+          LUA="$PWD/lua-${{ matrix.lua }}/src/lua"
+          "$LUA" -v
+          "$LUA" test/run.lua
