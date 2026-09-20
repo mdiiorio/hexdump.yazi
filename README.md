@@ -1,5 +1,7 @@
 # hexdump.yazi
 
+[![test](https://github.com/mdiiorio/hexdump.yazi/actions/workflows/test.yml/badge.svg)](https://github.com/mdiiorio/hexdump.yazi/actions/workflows/test.yml)
+
 A Yazi previewer that renders any file as a classic `hexdump -C` style dump,
 coloured by byte class.
 
