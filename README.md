@@ -3,9 +3,7 @@
 [![test](https://github.com/mdiiorio/hexdump.yazi/actions/workflows/test.yml/badge.svg)](https://github.com/mdiiorio/hexdump.yazi/actions/workflows/test.yml)
 
 A Yazi previewer that renders any file as a classic `hexdump -C` style dump,
-coloured by byte class.
-
-No external dependencies — it reads the file through Yazi's own `fs.access()`
+coloured by byte class.  No external dependencies — it reads the file through Yazi's own `fs.access()`
 API and formats in Lua.
 
 Requires Yazi 26.9.1 or newer.
@@ -22,13 +20,14 @@ Previewer rules live under `[plugin]` in `~/.config/yazi/yazi.toml`:
 
 ```toml
 [plugin]
+# Set for specific file types like this
 prepend_previewers = [
 	{ mime = "application/octet-stream", run = "hexdump" },
 	{ mime = "application/x-{executable,sharedlib,mach-binary}", run = "hexdump" },
 ]
 
+# Or provide a fall-through configuration for all unmatched file types
 append_previewers = [
-	# A wildcard `url` rule here replaces Yazi's default `file` fallback.
 	{ url = "*", run = "hexdump" },
 ]
 ```
@@ -43,7 +42,9 @@ set on the wildcard fallback:
 | `--group`    | `8`      | Insert a gap every N bytes.                   |
 
 ```toml
-{ mime = "application/octet-stream", run = "hexdump --columns=16 --group=4" }
+append_previewers = [
+    { url = "*", run = "hexdump --columns=16 --group=4" }
+]
 ```
 
 `auto` picks the widest of 64 / 32 / 16 / 12 / 8 / 4 columns that fits the
