@@ -2,8 +2,10 @@
 
 [![test](https://github.com/mdiiorio/hexdump.yazi/actions/workflows/test.yml/badge.svg)](https://github.com/mdiiorio/hexdump.yazi/actions/workflows/test.yml)
 
+![A binary previewed as a hexdump in Yazi](docs/preview.png)
+
 A Yazi previewer that renders any file as a classic `hexdump -C` style dump,
-coloured by byte class.  No external dependencies — it reads the file through Yazi's own `fs.access()`
+coloured by byte class. No external dependencies — it reads the file through Yazi's own `fs.access()`
 API and formats in Lua.
 
 Requires Yazi 26.9.1 or newer.
