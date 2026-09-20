@@ -13,7 +13,7 @@ Requires Yazi 26.9.1 or newer.
 ## Install
 
 ```sh
-ya pkg add <you>/hexdump
+ya pkg add mdiiorio/hexdump
 ```
 
 Or link a working copy straight into your plugins directory:
