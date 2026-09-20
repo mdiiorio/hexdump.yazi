@@ -75,16 +75,29 @@ rather than clipped off mid-cell, so you still get complete hex rows.
 
 ## Colours
 
-| Class                        | Colour     |
-| ---------------------------- | ---------- |
-| `0x00`                       | dark gray  |
-| space, `\t \n \v \f \r`      | green      |
-| printable ASCII              | cyan       |
-| other ASCII control bytes    | magenta    |
-| `>= 0x80`                    | yellow     |
+Bytes are sorted into six classes, each with a default colour:
 
-Edit `PALETTE` at the top of `main.lua` to change them; any ratatui colour name
-or `#rrggbb` works.
+| Class      | Bytes                        | Default    |
+| ---------- | ---------------------------- | ---------- |
+| `frame`    | offsets, padding, `|` gutter | dark gray  |
+| `null`     | `0x00`                       | dark gray  |
+| `white`    | space, `\t \n \v \f \r`      | green      |
+| `ascii`    | printable ASCII              | cyan       |
+| `ctrl`     | other ASCII control bytes    | magenta    |
+| `nonascii` | `>= 0x80`                    | yellow     |
+
+The defaults are ratatui colour names, so they resolve through your terminal's
+16-colour palette. Override any subset from a `[hexdump]` section in your
+`theme.toml` or `flavor.toml`:
+
+```toml
+[hexdump]
+ascii    = { fg = "cyan" }
+nonascii = { fg = "#e5c07b", bold = true }
+```
+
+Anything you leave out keeps its default. Styles are re-read on every redraw,
+so they follow theme hot-reloads and dark/light switching.
 
 ## Notes
 

@@ -4,8 +4,10 @@
 
 local M = {}
 
--- Colours per byte class. Accepts any ratatui colour name or "#rrggbb".
-local PALETTE = {
+-- Fallback colour per byte class, used for whatever a `[hexdump]` section in
+-- the user's theme.toml or flavor.toml doesn't override. Any ratatui colour
+-- name or "#rrggbb".
+local DEFAULTS = {
 	frame    = "darkgray", -- offset column, padding, the `|` gutters
 	null     = "darkgray", -- 0x00
 	white    = "green",    -- space, \t \n \v \f \r
@@ -19,43 +21,59 @@ local PALETTE = {
 -- too narrow for 16 still fills the space it has instead of falling back to 8.
 local CANDIDATES = { 64, 32, 16, 12, 8, 4 }
 
--- Per-byte lookup tables, built once per Lua VM.
-local HEX, COLOR, CHAR = {}, {}, {}
+-- Per-byte lookup tables, built once per Lua VM. Classes are resolved to
+-- styles separately, per peek, so a theme reload is picked up without
+-- rebuilding these.
+local HEX, CLASS, CHAR = {}, {}, {}
 for b = 0, 255 do
 	HEX[b] = string.format("%02x ", b)
 	if b == 0 then
-		COLOR[b], CHAR[b] = PALETTE.null, "."
+		CLASS[b], CHAR[b] = "null", "."
 	elseif b == 32 then
-		COLOR[b], CHAR[b] = PALETTE.white, " "
+		CLASS[b], CHAR[b] = "white", " "
 	elseif b >= 9 and b <= 13 then
-		COLOR[b], CHAR[b] = PALETTE.white, "."
+		CLASS[b], CHAR[b] = "white", "."
 	elseif b >= 33 and b <= 126 then
-		COLOR[b], CHAR[b] = PALETTE.ascii, string.char(b)
+		CLASS[b], CHAR[b] = "ascii", string.char(b)
 	elseif b < 128 then
-		COLOR[b], CHAR[b] = PALETTE.ctrl, "."
+		CLASS[b], CHAR[b] = "ctrl", "."
 	else
-		COLOR[b], CHAR[b] = PALETTE.nonascii, "."
+		CLASS[b], CHAR[b] = "nonascii", "."
 	end
+end
+
+--- Resolves every byte class to a `Style`, preferring a `[hexdump]` section in
+--- the user's theme. Read fresh on each peek so theme reloads take effect; the
+--- returned table is reused across all rows of that peek, which keeps the span
+--- coalescing below able to compare styles by identity.
+--- @return table<string, Style>
+local function palette()
+	local styles = {}
+	for class, color in pairs(DEFAULTS) do
+		local ok, style = pcall(function() return th.hexdump[class] end)
+		styles[class] = ok and style or ui.Style():fg(color)
+	end
+	return styles
 end
 
 -- Width of one rendered row: offset + 2 spaces, the hex cells and their group
 -- gaps, a space, then the `|...|` ASCII gutter.
 local function row_width(cols, group) return 4 * cols + math.ceil(cols / group) + 12 end
 
---- Coalesces adjacent same-colour text into a single `ui.Span`.
+--- Coalesces adjacent same-styled text into a single `ui.Span`.
 local function builder()
 	local spans, buf, cur = {}, {}, nil
 	local function flush()
 		if #buf > 0 then
-			spans[#spans + 1] = ui.Span(table.concat(buf)):fg(cur)
+			spans[#spans + 1] = ui.Span(table.concat(buf)):style(cur)
 			buf = {}
 		end
 	end
 	return {
-		add = function(text, color)
-			if color ~= cur then
+		add = function(text, style)
+			if style ~= cur then
 				flush()
-				cur = color
+				cur = style
 			end
 			buf[#buf + 1] = text
 		end,
@@ -70,30 +88,33 @@ end
 --- @param data string Buffer holding the bytes
 --- @param from integer 1-based index of the row's first byte in `data`
 --- @param n integer Number of bytes actually present in this row
+--- @param fmt table `cols`, `group`, `ascii` and the resolved `st`yle palette
 --- @return Line
-local function render_row(addr, data, from, n, cols, group, ascii)
+local function render_row(addr, data, from, n, fmt)
+	local cols, group, st = fmt.cols, fmt.group, fmt.st
+	local frame = st.frame
 	local b = builder()
-	b.add(string.format("%08x  ", addr), PALETTE.frame)
+	b.add(string.format("%08x  ", addr), frame)
 
 	for i = 0, cols - 1 do
 		if i < n then
 			local byte = data:byte(from + i)
-			b.add(HEX[byte], COLOR[byte])
+			b.add(HEX[byte], st[CLASS[byte]])
 		else
-			b.add("   ", PALETTE.frame)
+			b.add("   ", frame)
 		end
 		if (i + 1) % group == 0 and i + 1 < cols then
-			b.add(" ", PALETTE.frame)
+			b.add(" ", frame)
 		end
 	end
 
-	if ascii then
-		b.add(" |", PALETTE.frame)
+	if fmt.ascii then
+		b.add(" |", frame)
 		for i = 0, n - 1 do
 			local byte = data:byte(from + i)
-			b.add(CHAR[byte], COLOR[byte])
+			b.add(CHAR[byte], st[CLASS[byte]])
 		end
-		b.add(string.rep(" ", cols - n) .. "|", PALETTE.frame)
+		b.add(string.rep(" ", cols - n) .. "|", frame)
 	end
 
 	return ui.Line(b.done())
@@ -160,9 +181,14 @@ function M:peek(job)
 
 	local group = M.group(job)
 	local cols = M.columns(job, group)
-	-- A forced `--columns` can overflow the pane. Drop the ASCII gutter rather
-	-- than let it be clipped off mid-cell.
-	local ascii = row_width(cols, group) <= job.area.w
+	local fmt = {
+		cols  = cols,
+		group = group,
+		-- A forced `--columns` can overflow the pane. Drop the ASCII gutter
+		-- rather than let it be clipped off mid-cell.
+		ascii = row_width(cols, group) <= job.area.w,
+		st    = palette(),
+	}
 
 	-- Clamp `skip` to the last full screen, so scrolling stops at EOF.
 	local len = job.file.cha.len
@@ -202,8 +228,7 @@ function M:peek(job)
 		if from > #data then
 			break
 		end
-		lines[#lines + 1] =
-			render_row(offset + i * cols, data, from, math.min(cols, #data - from + 1), cols, group, ascii)
+		lines[#lines + 1] = render_row(offset + i * cols, data, from, math.min(cols, #data - from + 1), fmt)
 	end
 
 	ya.preview_widget(job, ui.Text(lines):area(job.area))
